@@ -1,166 +1,130 @@
 ﻿using Loxifi.Attributes;
-using Loxifi.Extensions;
+using Loxifi.Exceptions;
+using Loxifi.Services;
 using System.Reflection;
 
 namespace Loxifi
 {
-	/// <summary>
-	/// Command line parameter parsing and deserialization class
-	/// </summary>
 	public static class CommandLineParser
 	{
-		/// <summary>
-		/// Attempts to deserialize into the given type using the environment detected parameters
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <returns></returns>
-		public static T DeserializeCommandLine<T>() where T : class => DeserializeCommandLine<T>(Environment.GetCommandLineArgs().Skip(1));
+		public static TModel Deserialize<TModel>() where TModel : class => Deserialize<TModel>(System.Environment.GetCommandLineArgs().Skip(1));
 
-		/// <summary>
-		/// Attempts to deserialize into the given type using the provided string IEnumerable to supply the args
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="args"></param>
-		/// <returns></returns>
-		/// <exception cref="NotImplementedException"></exception>
-		/// <exception cref="ArgumentException"></exception>
-		public static T DeserializeCommandLine<T>(IEnumerable<string> args) where T : class
+		public static TModel Deserialize<TModel>(IEnumerable<string> args) where TModel : class
 		{
-			T Value = (T)Activator.CreateInstance(typeof(T));
+			MatchedPropertyCollection matchedPropertyCollection = BuildMatchedPropertyCollection<TModel>(args);
 
-			List<string> arguments = args.ToList();
+			ModelBuilder<TModel> builder = new();
 
-			Dictionary<char, Action<string>> propertyFuncs = new()
+			foreach (MatchedProperty property in matchedPropertyCollection)
 			{
-				{
-					'/',
-					(s) =>
+				builder.SetProperty(property.Property, property.Values);
+			}
+
+			TModel toReturn = builder.Build();
+
+			Ensure<TModel>(toReturn);
+
+			return toReturn;
+		}
+
+		private static void Ensure<TModel>(TModel model)
+		{
+			if(model is null)
 			{
-				string propertyName;
-				string? value = null;
+				throw new NullReferenceException();
+			}
 
-				int indexOfColon = s.IndexOf(':');
-
-				if(indexOfColon == -1)
+			foreach(PropertyInfo pi in typeof(TModel).GetProperties())
+			{
+				if (pi.GetCustomAttribute<ValidationAttribute>() is ValidationAttribute va) 
 				{
-					propertyName = s;
-				} else
-				{
-					propertyName = s[..indexOfColon];
-					value = s[(indexOfColon + 1)..];
-				}
-
-				PropertyInfo pi = typeof(T).GetProperties().Single(p => string.Equals(p.Name, propertyName, StringComparison.OrdinalIgnoreCase));
-
-				if (pi.PropertyType == typeof(bool))
-				{
-					pi.SetValue(Value, !(bool)pi.GetValue(Value));
-				}
-				else
-				{
-					pi.SetValue(Value, value.Convert(pi.PropertyType));
+					va.Ensure(pi, pi.GetValue(model));
 				}
 			}
-				}
-			};
+		}
 
-			foreach (PropertyInfo pi in typeof(T).GetProperties())
+		/// <summary>
+		/// Figure out what goes where
+		/// </summary>
+		/// <typeparam name="TModel"></typeparam>
+		/// <param name="args"></param>
+		/// <returns></returns>
+		/// <exception cref="UnmatchedParameterException"></exception>
+		private static MatchedPropertyCollection BuildMatchedPropertyCollection<TModel>(IEnumerable<string> args) where TModel : class
+		{
+			//For figuring out what goes to where
+			ParameterResolutionService<TModel> propertyResolutionService = new();
+
+			//For holding what we figured out goes to where
+			MatchedPropertyCollection matchedPropertyCollection = new();
+
+			List<string> argsList = args.ToList();
+
+			//Bump this up by one every time we find a property without a name
+			//and use it to check our indexed property list to see if its positional
+			int unmatchedIndex = 0;
+
+			//since we're looping, we need to keep track of whether or not the last string in the
+			//collection represented a name, or a parameter. If this has a value then we know
+			//the current string in the loop is actually a parameter
+			PropertyInfo? currentMatchedProperty = null;
+
+			while (argsList.Any())
 			{
-				if (pi.GetCustomAttribute<CommandCharAttribute>() is CommandCharAttribute cc)
-				{
-					char c = cc.Value;
-					Action<string> func = null;
+				//Dequeue
+				string thisArg = argsList.First().Trim('\\').Trim();
+				argsList.RemoveAt(0);
 
-					if (c == '/')
+				//If the current property is declared but doesn't actually accept parameters (bool switch)
+				if (currentMatchedProperty != null && !propertyResolutionService.HasParameters(currentMatchedProperty))
+				{
+					//then dump it to the bag and clear so we can pick up the next property
+					matchedPropertyCollection.Add(currentMatchedProperty, string.Empty);
+					currentMatchedProperty = null;
+				}
+
+				if(currentMatchedProperty is not null)
+				{
+					//If we have a matched property then this is a parameter
+					matchedPropertyCollection.Add(currentMatchedProperty, thisArg);
+					currentMatchedProperty = null;
+					continue;
+				}
+
+				//If we're not currently within the parameters of a property
+				//We need to figure out what property we should be
+				if (currentMatchedProperty is null)
+				{
+					//Named properties take precedence
+					if (propertyResolutionService.TryGet(thisArg, out currentMatchedProperty))
 					{
 						continue;
 					}
 
-					if (typeof(ICollection<string>).IsAssignableFrom(pi.PropertyType))
+					//Then indexed properties. check the front first
+					if (propertyResolutionService.TryGet(unmatchedIndex, out PropertyInfo positionalProperty))
 					{
-						ICollection<string> collection = (ICollection<string>)pi.GetValue(Value);
-
-						if (collection is null)
-						{
-							collection = (ICollection<string>)Activator.CreateInstance(pi.PropertyType);
-							pi.SetValue(Value, collection);
-						}
-
-						func = collection.Add;
-					}
-					else
-					{
-						func = (s) => pi.SetValue(Value, s.Convert(pi.PropertyType));
+						unmatchedIndex++;
+						//An indexed property is its own value
+						matchedPropertyCollection.Add(positionalProperty, thisArg);
+						continue;
 					}
 
-					if (func is null)
+					//Then the back
+					if (propertyResolutionService.TryGet(- 1 - argsList.Count, out PropertyInfo positionalPropertyRear))
 					{
-						throw new NotImplementedException($"Property Type {pi.PropertyType} could not be handled");
+						//Dont increment because we shouldn't be mixing at this point
+						//An indexed property is its own value
+						matchedPropertyCollection.Add(positionalPropertyRear, thisArg);
+						continue;
 					}
-					else
-					{
-						propertyFuncs.Add(c, func);
-					}
+
+					//If there was no match, then something is wrong
+					throw new UnmatchedParameterException();
 				}
 			}
 
-			foreach (MethodInfo mi in typeof(T).GetMethods())
-			{
-				if (mi.GetCustomAttribute<CommandCharAttribute>() is CommandCharAttribute cc)
-				{
-					char c = cc.Value;
-					Action<string>? func = null;
-
-					ParameterInfo[] parameters = mi.GetParameters();
-
-					if (parameters.Length != 1)
-					{
-						throw new NotImplementedException("CommandChar methods can only recieve a single object");
-					}
-
-					func = (s) => mi.Invoke(Value, new object?[] { s.Convert(parameters.Single().ParameterType) });
-
-					propertyFuncs.Add(c, func);
-				}
-			}
-
-			while (arguments.Any())
-			{
-				Command arg = new(arguments.First().Trim('"'));
-				arguments.RemoveAt(0);
-
-				if (propertyFuncs.TryGetValue(arg.FirstChar, out Action<string> func))
-				{
-					func.Invoke(arg.Data);
-				}
-			}
-
-			foreach (PropertyInfo pi in typeof(T).GetProperties())
-			{
-				bool requiredFailure = pi.GetCustomAttribute<RequiredAttribute>() != null;
-				requiredFailure = requiredFailure && pi.GetValue(Value).IsDefaultValue();
-
-				bool emptyFailure = pi.GetCustomAttribute<NotNullOrWhiteSpaceAttribute>() != null;
-				emptyFailure = emptyFailure && string.IsNullOrWhiteSpace((string)pi.GetValue(Value));
-
-				if (emptyFailure || requiredFailure)
-				{
-					string setName = "";
-
-					if (pi.GetCustomAttribute<CommandCharAttribute>() is CommandCharAttribute cc)
-					{
-						setName = $"{cc.Value}Value";
-					}
-					else
-					{
-						setName = $"/{pi.Name}:Value";
-					}
-
-					throw new ArgumentException($"{pi.Name} is not set. Use the command {setName} to set it");
-				}
-			}
-
-			return Value;
+			return matchedPropertyCollection;
 		}
 	}
 }
