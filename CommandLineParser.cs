@@ -72,7 +72,7 @@ namespace Loxifi
 			while (argsList.Any())
 			{
 				//Dequeue
-				string thisArg = argsList.First().Trim('\\').Trim();
+				string thisArg = argsList.First().Trim();
 				argsList.RemoveAt(0);
 
 				//If the current property is declared but doesn't actually accept parameters (bool switch)

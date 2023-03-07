@@ -8,7 +8,7 @@
 		/// <param name="parameterName"></param>
 		public NamedParameterAttribute(string parameterName)
 		{
-			ParameterName = parameterName;
+			this.ParameterName = parameterName;
 		}
 
 		/// <summary>
@@ -30,7 +30,7 @@
 		/// <summary>
 		/// True if this parameter is looking for a specific character to proceed the parameter name
 		/// </summary>
-		public bool IsControlCharacterSpecified => ControlChar != '\0';
+		public bool IsControlCharacterSpecified => this.ControlChar != '\0';
 
 		/// <summary>
 		/// The named parameter to look for when setting this value
