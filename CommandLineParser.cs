@@ -75,53 +75,63 @@ namespace Loxifi
 				string thisArg = argsList.First().Trim();
 				argsList.RemoveAt(0);
 
-				//If the current property is declared but doesn't actually accept parameters (bool switch)
-				if (currentMatchedProperty != null && !propertyResolutionService.HasParameters(currentMatchedProperty))
+				//If we're waiting on the value for a previously matched parameterized
+				//property, this argument is that value
+				if (currentMatchedProperty is not null)
 				{
-					//then dump it to the bag and clear so we can pick up the next property
-					matchedPropertyCollection.Add(currentMatchedProperty, string.Empty);
-					currentMatchedProperty = null;
-				}
-
-				if(currentMatchedProperty is not null)
-				{
-					//If we have a matched property then this is a parameter
 					matchedPropertyCollection.Add(currentMatchedProperty, thisArg);
 					currentMatchedProperty = null;
 					continue;
 				}
 
-				//If we're not currently within the parameters of a property
-				//We need to figure out what property we should be
-				if (currentMatchedProperty is null)
+				//Named properties take precedence
+				if (propertyResolutionService.TryGet(thisArg, out PropertyInfo namedProperty))
 				{
-					//Named properties take precedence
-					if (propertyResolutionService.TryGet(thisArg, out currentMatchedProperty))
+					if (propertyResolutionService.HasParameters(namedProperty))
 					{
-						continue;
+						//The next argument is this property's value
+						currentMatchedProperty = namedProperty;
+					}
+					else
+					{
+						//A bool switch is resolved immediately so it can never be lost (e.g.
+						//when it's the final argument) and so its value can't bleed into
+						//positional resolution. Presence implies true, but an explicit
+						//"-Flag true" / "-Flag false" immediately following is honored.
+						string value = string.Empty;
+
+						if (argsList.Any() && bool.TryParse(argsList.First().Trim(), out _))
+						{
+							value = argsList.First().Trim();
+							argsList.RemoveAt(0);
+						}
+
+						matchedPropertyCollection.Add(namedProperty, value);
 					}
 
-					//Then indexed properties. check the front first
-					if (propertyResolutionService.TryGet(unmatchedIndex, out PropertyInfo positionalProperty))
-					{
-						unmatchedIndex++;
-						//An indexed property is its own value
-						matchedPropertyCollection.Add(positionalProperty, thisArg);
-						continue;
-					}
-
-					//Then the back
-					if (propertyResolutionService.TryGet(- 1 - argsList.Count, out PropertyInfo positionalPropertyRear))
-					{
-						//Dont increment because we shouldn't be mixing at this point
-						//An indexed property is its own value
-						matchedPropertyCollection.Add(positionalPropertyRear, thisArg);
-						continue;
-					}
-
-					//If there was no match, then something is wrong
-					throw new UnmatchedParameterException();
+					continue;
 				}
+
+				//Then indexed properties. check the front first
+				if (propertyResolutionService.TryGet(unmatchedIndex, out PropertyInfo positionalProperty))
+				{
+					unmatchedIndex++;
+					//An indexed property is its own value
+					matchedPropertyCollection.Add(positionalProperty, thisArg);
+					continue;
+				}
+
+				//Then the back
+				if (propertyResolutionService.TryGet(-1 - argsList.Count, out PropertyInfo positionalPropertyRear))
+				{
+					//Dont increment because we shouldn't be mixing at this point
+					//An indexed property is its own value
+					matchedPropertyCollection.Add(positionalPropertyRear, thisArg);
+					continue;
+				}
+
+				//If there was no match, then something is wrong
+				throw new UnmatchedParameterException();
 			}
 
 			return matchedPropertyCollection;

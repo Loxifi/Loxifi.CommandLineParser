@@ -18,7 +18,17 @@ namespace Loxifi.Services
 		{
 			if (propertyInfo.PropertyType == typeof(bool))
 			{
-				propertyInfo.SetValue(_model, true);
+				//Presence implies true; an explicit "-Flag true" / "-Flag false" overrides.
+				bool value = true;
+
+				string lastExplicit = values.LastOrDefault(v => !string.IsNullOrEmpty(v));
+
+				if (lastExplicit != null && bool.TryParse(lastExplicit, out bool parsed))
+				{
+					value = parsed;
+				}
+
+				propertyInfo.SetValue(_model, value);
 				return;
 			}
 

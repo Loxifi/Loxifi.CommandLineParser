@@ -57,6 +57,58 @@ namespace Loxifi
 			Assert.AreEqual("LastProperty", testModel.LastPosition);
 		}
 
+		[TestMethod]
+		public void BareTrailingSwitchIsSet()
+		{
+			// The switch is the final argument: it must still bind.
+			SwitchModel model = CommandLineParser.Deserialize<SwitchModel>(new[] { "somePath", "-Monitor" });
+
+			Assert.IsTrue(model.Monitor);
+			Assert.IsTrue(Enumerable.SequenceEqual(new[] { "somePath" }, model.Paths));
+		}
+
+		[TestMethod]
+		public void BareLeadingSwitchIsSet()
+		{
+			SwitchModel model = CommandLineParser.Deserialize<SwitchModel>(new[] { "-Monitor", "somePath" });
+
+			Assert.IsTrue(model.Monitor);
+			Assert.IsTrue(Enumerable.SequenceEqual(new[] { "somePath" }, model.Paths));
+		}
+
+		[TestMethod]
+		public void TwoBareSwitchesAreSet()
+		{
+			SwitchModel model = CommandLineParser.Deserialize<SwitchModel>(new[] { "somePath", "-Monitor", "-DropFrames" });
+
+			Assert.IsTrue(model.Monitor);
+			Assert.IsTrue(model.DropFrames);
+			Assert.IsTrue(Enumerable.SequenceEqual(new[] { "somePath" }, model.Paths));
+		}
+
+		[TestMethod]
+		public void ExplicitSwitchValueIsHonored()
+		{
+			// An explicit true/false must bind to the switch (not leak into Paths) ...
+			SwitchModel t = CommandLineParser.Deserialize<SwitchModel>(new[] { "somePath", "-Monitor", "true" });
+			Assert.IsTrue(t.Monitor);
+			Assert.IsTrue(Enumerable.SequenceEqual(new[] { "somePath" }, t.Paths));
+
+			// ... and "-Monitor false" must actually set it to false.
+			SwitchModel f = CommandLineParser.Deserialize<SwitchModel>(new[] { "somePath", "-Monitor", "false" });
+			Assert.IsFalse(f.Monitor);
+			Assert.IsTrue(Enumerable.SequenceEqual(new[] { "somePath" }, f.Paths));
+		}
+
+		[TestMethod]
+		public void AbsentSwitchIsFalse()
+		{
+			SwitchModel model = CommandLineParser.Deserialize<SwitchModel>(new[] { "somePath" });
+
+			Assert.IsFalse(model.Monitor);
+			Assert.IsFalse(model.DropFrames);
+		}
+
 		private static List<string> GetArgs(params string[] strings) => strings.SelectMany(s => s.Split(' ')).Select(s => s.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 	}
 }
