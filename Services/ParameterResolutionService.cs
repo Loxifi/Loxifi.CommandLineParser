@@ -1,4 +1,5 @@
 ﻿using Loxifi.Attributes;
+using System.Collections;
 using System.Reflection;
 
 namespace Loxifi.Services
@@ -50,6 +51,12 @@ namespace Loxifi.Services
 
 			return true;
 		}
+
+		/// <summary>
+		/// True when the property is a list/collection, so a positional binding can keep
+		/// feeding it multiple values instead of advancing to the next positional slot.
+		/// </summary>
+		public bool IsCollection(PropertyInfo pi) => typeof(IList).IsAssignableFrom(pi.PropertyType);
 
 		public bool TryGet(string name, out PropertyInfo propertyInfo) => _namedProperties.TryGetValue(name, out propertyInfo);
 

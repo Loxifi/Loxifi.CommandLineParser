@@ -112,21 +112,30 @@ namespace Loxifi
 					continue;
 				}
 
-				//Then indexed properties. check the front first
-				if (propertyResolutionService.TryGet(unmatchedIndex, out PropertyInfo positionalProperty))
+				//Rear positionals are checked first: an argument that lines up with a
+				//rear slot (e.g. [PositionalParameter(-1)]) must claim it before a still
+				//unfilled front positional greedily takes it. The index is the argument's
+				//distance from the end, so the final argument is -1, the previous -2, etc.
+				if (propertyResolutionService.TryGet(-1 - argsList.Count, out PropertyInfo positionalPropertyRear))
 				{
-					unmatchedIndex++;
-					//An indexed property is its own value
-					matchedPropertyCollection.Add(positionalProperty, thisArg);
+					//An indexed property is its own value. Front and rear positionals are
+					//counted independently, so don't touch unmatchedIndex here.
+					matchedPropertyCollection.Add(positionalPropertyRear, thisArg);
 					continue;
 				}
 
-				//Then the back
-				if (propertyResolutionService.TryGet(-1 - argsList.Count, out PropertyInfo positionalPropertyRear))
+				//Then the front. A List<> positional is greedy: it keeps the same index so
+				//it can accumulate every remaining front argument (the rest going to rear
+				//slots, which were already claimed above).
+				if (propertyResolutionService.TryGet(unmatchedIndex, out PropertyInfo positionalProperty))
 				{
-					//Dont increment because we shouldn't be mixing at this point
+					if (!propertyResolutionService.IsCollection(positionalProperty))
+					{
+						unmatchedIndex++;
+					}
+
 					//An indexed property is its own value
-					matchedPropertyCollection.Add(positionalPropertyRear, thisArg);
+					matchedPropertyCollection.Add(positionalProperty, thisArg);
 					continue;
 				}
 

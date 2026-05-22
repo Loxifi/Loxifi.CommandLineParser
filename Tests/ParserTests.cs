@@ -109,6 +109,25 @@ namespace Loxifi
 			Assert.IsFalse(model.DropFrames);
 		}
 
+		[TestMethod]
+		public void MultiplePositionalsBindToList()
+		{
+			// A positional List<> should accumulate every positional argument, not just one.
+			SwitchModel model = CommandLineParser.Deserialize<SwitchModel>(new[] { "A", "B", "C" });
+
+			Assert.IsTrue(Enumerable.SequenceEqual(new[] { "A", "B", "C" }, model.Paths));
+		}
+
+		[TestMethod]
+		public void PositionalsAroundSwitchBindToList()
+		{
+			// Positionals on either side of a switch all land in the list; the switch binds.
+			SwitchModel model = CommandLineParser.Deserialize<SwitchModel>(new[] { "A", "-Monitor", "B" });
+
+			Assert.IsTrue(model.Monitor);
+			Assert.IsTrue(Enumerable.SequenceEqual(new[] { "A", "B" }, model.Paths));
+		}
+
 		private static List<string> GetArgs(params string[] strings) => strings.SelectMany(s => s.Split(' ')).Select(s => s.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 	}
 }
